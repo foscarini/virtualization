@@ -1,0 +1,82 @@
+#!/bin/bash
+
+SYSRESCUE_ISO=$(xe cd-list|sed -n 's/.*\(systemrescue.*\)/\1/p'|sort -r|head -1)
+
+echo "conversion works only with ext2/ext3 system or boot disks."
+
+if [ "$1" != "" ]
+then VM_NAME=$1
+else read -p "Type the virtual machine name: " VM_NAME
+fi
+
+UUID_VM="`xe vm-list name-label=${VM_NAME}\
+|sed -n '/uuid/s/.*: \([[:alnum:]\-]\+\)$/\1/p'`"
+if [ "$UUID_VM" = "" ]
+then echo "$VM_NAME not found"
+     exit 1
+fi
+
+UUID_DISK="`xe vm-disk-list uuid=$UUID_VM\
+|sed -e ':a;$!N;s/\n/\;/;ta;' -e 's/[\ \t]\+//g'\
+|sed -n 's/.*uuid(RO):\([[:alnum:]\-]\+\).*userdevice(RW):0.*/\1/p'`"
+if [ "$UUID_DISK" = "" ]
+then echo "Unable to find the first system disk. Verify the VM configuration."
+     exit 2
+fi
+
+OS_VERSION=$(xe vm-param-get uuid=$UUID_VM param-name=os-version|sed 's/[\ \t]\+//g')
+PV_TYPE="invalido"
+if grep -i '^name:[^;]*centos[^;]*;' <<< "$OS_VERSION" >/dev/null; then
+        PV_ARGS=""
+        PV_TYPE="centos"
+elif grep -i '^name:[^;]*ubuntu[^;]*lts[^;]*;' <<< "$OS_VERSION"|egrep -iv ';uname:[^;]*(ec2|xen)[^;]*;' >/dev/null; then
+        PV_ARGS="--debug"
+        PV_TYPE="ubuntu"
+elif grep -i '<notindatabase>' <<< "$OS_VERSION" >/dev/null; then
+        PV_ARGS="--debug"
+        PV_TYPE="undefined, default to ubuntu"
+else
+        #
+        PV_ARGS='console=tty0 xencons=tty clocksource=jiffies root=/dev/xvda1'
+        #upstart debug for Lucid (kernel xen/ec2)
+        if grep -i '^name:[^;]*ubuntu[^;]*lts[^;]*;' <<< "$OS_VERSION"; then
+                PV_ARGS="${PV_ARGS} --debug"
+        fi
+        PV_TYPE="other"
+fi
+
+HAS_INSERTED_MEDIA="`xe vm-cd-list vm=$VM_NAME | grep VDI`"
+PV_BOOTOLOADER="`xe vm-param-get param-name=PV-bootloader uuid=$UUID_VM`" #pygrub or empty
+
+case $PV_BOOTOLOADER in
+"") #paravirtualize
+    xe vm-param-set uuid=$UUID_VM HVM-boot-policy=""
+    xe vm-param-set uuid=$UUID_VM PV-bootloader="pygrub"
+    xe vm-param-set uuid=$UUID_VM PV-args="${PV_ARGS}"
+    xe vbd-param-set uuid=$UUID_DISK bootable=true
+    if [ "$HAS_INSERTED_MEDIA" != "" ]
+    then  xe vm-cd-eject vm=$VM_NAME
+    fi
+    echo "paravirt - $PV_TYPE"
+    exit 0
+    ;;
+"pygrub")#fullvirtualize
+    xe vm-param-set uuid=$UUID_VM HVM-boot-policy="BIOS order"
+    xe vm-param-set uuid=$UUID_VM HVM-boot-params:order=dnc
+    xe vm-param-set uuid=$UUID_VM HVM-boot-params:dc
+    xe vm-param-set uuid=$UUID_VM PV-bootloader=""
+    xe vm-param-set uuid=$UUID_VM PV-args=""
+    xe vbd-param-set uuid=$UUID_DISK bootable=false
+    if [ "$HAS_INSERTED_MEDIA" != "" ]
+    then  xe vm-cd-eject vm=$VM_NAME
+    fi
+    if [ "$SYSRESCUE_ISO" != "" ]
+    then  xe vm-cd-insert vm=$VM_NAME cd-name=$SYSRESCUE_ISO
+    fi
+    echo "fullvirt - $PV_TYPE"
+    exit 0
+    ;;
+*)
+    echo "inconsistent PV_BOOTOLOADER - verify"
+    exit 1
+esac
