@@ -1,0 +1,32 @@
+#!/bin/bash
+
+
+POOLNAME=`xe pool-list params=name-label | grep ^name-label | awk -F': ' '{ print $2 }'`
+XENHOSTNAME=`xe host-list params=name-label | grep ^name-label | awk -F': ' '{ print $2 }'`
+
+if [ "${POOLNAME}" = "" ]
+then MYNAME=${XENHOSTNAME}
+else MYNAME=${POOLNAME}
+fi
+
+for uuid in `xe vm-list is-control-domain=false params=uuid | grep ^uuid | awk -F': ' '{ print $2 }'`; do
+
+        NOME=`xe vm-param-get uuid=${uuid} param-name=name-label`
+        MEMORIA=`xe vm-param-get uuid=${uuid} param-name=memory-static-max`
+        MEMORIA_MB=$((MEMORIA/1048576))
+        CPUS=`xe vm-param-get uuid=${uuid} param-name=VCPUs-max`
+        POWERST=`xe vm-param-get uuid=${uuid} param-name=power-state`
+        SISOP_DIST=`xe vm-param-get uuid=${uuid} param-name=os-version param-key=distro 2>/dev/null`
+        SISOP_MAJOR=`xe vm-param-get uuid=${uuid} param-name=os-version param-key=major 2>/dev/null`
+        SISOP_NAME=`xe vm-param-get uuid=${uuid} param-name=os-version param-key=name 2>/dev/null | awk -F'|' '{ print $1 }'`
+
+        DISCOSTOTAL=0
+        for tamanho in `xe vm-disk-list uuid=${uuid} vdi-params=virtual-size vbd-params=none | grep ^virtual-size | awk -F': ' '{ print $2 }'`; do
+                DISCOSTOTAL=$(($DISCOSTOTAL+$tamanho))
+        done
+        DISCOSTOTAL_MB=$((DISCOSTOTAL/1048576))
+
+        #echo "${MYNAME};${NOME};${MEMORIA_MB};${CPUS};${DISCOSTOTAL_MB};${POWERST}"
+        echo "${MYNAME};${NOME};${MEMORIA_MB};${CPUS};${DISCOSTOTAL_MB};${POWERST};${SISOP_DIST};${SISOP_MAJOR};\"${SISOP_NAME}\""
+
+done

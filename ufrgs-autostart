@@ -1,0 +1,72 @@
+#!/bin/bash
+
+IFS="
+"
+
+APP_NAME="ufrgs-autostart-$$"
+FACILITY="mail"	
+LASTRUN="/var/spool/ufrgs/ufrgs-autostart.lastrun"
+LOCAL_HOSTNAME=`hostname 2>/dev/null`
+LOCAL_HOSTNAME_FULL=`hostname -f 2>/dev/null`
+
+mkdir -p /var/spool/ufrgs/
+
+MASTER_UUID=`xe pool-list params=master | awk '{ print $5 }'`
+if [ $? -eq 0  ] ; then
+  MASTER_HOSTNAME=`xe host-list uuid=$MASTER_UUID params=name-label | awk '{ print $5 }'`
+else
+  echo "Error on checking master hostname"
+  exit 1
+fi
+
+if [ "$MASTER_HOSTNAME" = "$LOCAL_HOSTNAME" -o "$MASTER_HOSTNAME" = "$LOCAL_HOSTNAME_FULL"  ] ; then
+
+  logger -p $FACILITY.info -t "$APP_NAME" "INFO - Inicio do Procedimento"
+  logger -p $FACILITY.info -t "$APP_NAME" "INFO -              vm-uuid           - tageada - conf antes - conf depois "
+
+  POOLUUID=`xe pool-list params=uuid | awk '{ print $5 }'`
+  if [ $? -eq 0  ] ; then
+    xe pool-param-set uuid=$POOLUUID other-config:auto_poweron=true > /dev/null
+  fi
+
+  for i in `xe vm-list | grep uuid | awk '{ print $5 }'` ; do
+
+    xe vm-param-get param-name=other-config uuid=$i | grep "auto_poweron: true" > /dev/null
+    if [ $? -eq 0 ] ; then
+      CONFIG_A="T"
+    else
+      CONFIG_A="F"
+    fi
+
+    xe vm-param-get param-name=tags uuid=$i | grep "ufrgs-autostart" > /dev/null
+    if [ $? -eq 0 ] ; then
+      TAGGED="T"
+    else
+      TAGGED="F"
+    fi
+
+    if [ $TAGGED = 'T' ] ; then
+      xe vm-param-set other-config:auto_poweron=true uuid=$i > /dev/null
+    else
+      xe vm-param-set other-config:auto_poweron=false uuid=$i > /dev/null
+    fi
+
+    xe vm-param-get param-name=other-config uuid=$i | grep "auto_poweron: true" > /dev/null
+    if [ $? -eq 0 ] ; then
+      CONFIG_B="T"
+    else
+      CONFIG_B="F"
+    fi
+
+    logger -p $FACILITY.info -t "$APP_NAME" "INFO - $i - $TAGGED - $CONFIG_A - $CONFIG_B"
+
+  done
+
+  logger -p $FACILITY.info -t "$APP_NAME" "INFO - Fim do Procedimento"
+
+else
+
+  logger -p $FACILITY.info -t "$APP_NAME" "INFO - Host não é o master do pool"
+
+fi
+touch $LASTRUN
