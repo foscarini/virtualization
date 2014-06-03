@@ -5,7 +5,7 @@ Some bash scripts used to manage Citrix XenServer by the CPD/UFRGS team
 
 * ufrgs-convert - Converts Citrix XenServer virtual machines between PV and HVM modes
 
-* ufrgs-vm-reports - generate memory and disk usager report
+* ufrgs-vm-reports - generate memory and disk usage reports
 
 * ufrgs-autostart - set the autostart properties on tagged virtual machines
 
